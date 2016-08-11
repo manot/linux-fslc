@@ -40,6 +40,9 @@
 #include <linux/delay.h>
 #include <video/mipi_display.h>
 #include <linux/mfd/syscon.h>
+#include <linux/of_gpio.h>
+#include <linux/console.h>
+#include <linux/fb.h>
 
 #include "mipi_dsi.h"
 
@@ -48,6 +51,8 @@
 #define NS2PS_RATIO			(1000)
 #define	MIPI_LCD_SLEEP_MODE_DELAY	(120)
 #define MIPI_FIFO_TIMEOUT		msecs_to_jiffies(250)
+
+static int back_light_gpio;
 
 static struct mipi_dsi_match_lcd mipi_dsi_lcd_db[] = {
 #ifdef CONFIG_FB_MXC_TRULY_WVGA_SYNC_PANEL
@@ -68,6 +73,12 @@ static struct mipi_dsi_match_lcd mipi_dsi_lcd_db[] = {
 	 {mipid_hx8363_get_lcd_videomode, mipid_hx8363_lcd_setup}
 	},
 #endif
+#ifdef CONFIG_FB_MXC_TRULY_PANEL_TDO_QVGA0150A90049
+	{
+	 "TRULY-TDO-QVGA0150A90049",
+	 {mipid_otm3201a_get_lcd_videomode, mipid_otm3201a_lcd_setup}
+	},
+#endif
 	{
 	"", {NULL, NULL}
 	}
@@ -80,7 +91,9 @@ enum mipi_dsi_mode {
 
 enum mipi_dsi_trans_mode {
 	DSI_LP_MODE,
-	DSI_HS_MODE
+	DSI_HS_MODE,
+	DSI_CMD_MODE,
+	DSI_VD_MODE
 };
 
 static struct regulator *mipi_phy_reg;
@@ -89,7 +102,7 @@ static DECLARE_COMPLETION(dsi_tx_done);
 
 static void mipi_dsi_dphy_power_down(void);
 static void mipi_dsi_set_mode(struct mipi_dsi_info *mipi_dsi,
-			      enum mipi_dsi_trans_mode mode);
+			enum mipi_dsi_trans_mode mode);
 
 static int mipi_dsi_lcd_init(struct mipi_dsi_info *mipi_dsi,
 			     struct mxc_dispdrv_setting *setting)
@@ -107,6 +120,7 @@ static int mipi_dsi_lcd_init(struct mipi_dsi_info *mipi_dsi,
 			break;
 		}
 	}
+
 	if (i == ARRAY_SIZE(mipi_dsi_lcd_db)) {
 		dev_err(dev, "failed to find supported lcd panel.\n");
 		return -EINVAL;
@@ -203,7 +217,7 @@ static void mipi_dsi_long_data_wr(struct mipi_dsi_info *mipi_dsi,
                                 data0[data_cnt + 2],
                                 data0[data_cnt + 3]);
 
-			mipi_dsi_wr_tx_data(mipi_dsi, payload);
+						mipi_dsi_wr_tx_data(mipi_dsi, payload);
                 }
         }
 }
@@ -410,47 +424,78 @@ static int mipi_dsi_master_init(struct mipi_dsi_info *mipi_dsi,
 	esc_div  = DIV_ROUND_UP(byte_clk, 20 * 1000000);
 	reg |= (esc_div & 0xffff);
 	/* enable escape clock for clock lane and data lane0 and lane1 */
-	reg |= MIPI_DSI_LANE_ESC_CLK_EN(0x7);
-	reg |= MIPI_DSI_ESC_CLK_EN(1);
-	writel(reg, mipi_dsi->mmio_base + MIPI_DSI_CLKCTRL);
+	if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-QVGA0150A90049")) {
+		reg |= MIPI_DSI_LANE_ESC_CLK_EN(0x3);
+		reg |= MIPI_DSI_ESC_CLK_EN(1);
+		writel(reg, mipi_dsi->mmio_base + MIPI_DSI_CLKCTRL);
 
-	/* set main display resolution */
-	writel(MIPI_DSI_MAIN_HRESOL(mode->xres) |
-	       MIPI_DSI_MAIN_VRESOL(mode->yres) |
-	       MIPI_DSI_MAIN_STANDBY(0),
-	       mipi_dsi->mmio_base + MIPI_DSI_MDRESOL);
+		/* set main display resolution */
+		writel(MIPI_DSI_MAIN_HRESOL(mode->xres) |
+			MIPI_DSI_MAIN_VRESOL(mode->yres) |
+			MIPI_DSI_MAIN_STANDBY(0),
+			mipi_dsi->mmio_base + MIPI_DSI_MDRESOL);
 
-	/* set config register */
-	writel(MIPI_DSI_MFLUSH_VS(1) |
-	       MIPI_DSI_SYNC_IN_FORM(0) |
-	       MIPI_DSI_BURST_MODE(1) |
-	       MIPI_DSI_VIDEO_MODE(1) |
-	       MIPI_DSI_AUTO_MODE(0)  |
-	       MIPI_DSI_HSE_DISABLE_MODE(0) |
-	       MIPI_DSI_HFP_DISABLE_MODE(0) |
-	       MIPI_DSI_HBP_DISABLE_MODE(0) |
-	       MIPI_DSI_HSA_DISABLE_MODE(0) |
-	       MIPI_DSI_MAIN_VC(0) |
-	       MIPI_DSI_SUB_VC(1)  |
-	       MIPI_DSI_MAIN_PIX_FORMAT(0x7) |
-	       MIPI_DSI_SUB_PIX_FORMAT(0x7) |
-	       MIPI_DSI_NUM_OF_DATALANE(0x1) |
-	       MIPI_DSI_LANE_EN(0x7), /* enable data lane 0 and 1 */
-	       mipi_dsi->mmio_base + MIPI_DSI_CONFIG);
+		/* set config register */
+		writel(MIPI_DSI_MFLUSH_VS(1) |
+			MIPI_DSI_SYNC_IN_FORM(0) |
+			MIPI_DSI_BURST_MODE(1) |
+			MIPI_DSI_VIDEO_MODE(1) |
+			MIPI_DSI_AUTO_MODE(0)  |
+			MIPI_DSI_HSE_DISABLE_MODE(0) |
+			MIPI_DSI_HFP_DISABLE_MODE(0) |
+			MIPI_DSI_HBP_DISABLE_MODE(0) |
+			MIPI_DSI_HSA_DISABLE_MODE(0) |
+			MIPI_DSI_MAIN_VC(0) |
+			MIPI_DSI_SUB_VC(1)  |
+			MIPI_DSI_MAIN_PIX_FORMAT(0x7) |
+			MIPI_DSI_SUB_PIX_FORMAT(0x7) |
+			MIPI_DSI_NUM_OF_DATALANE(0x0) |
+			MIPI_DSI_LANE_EN(0x3),
+			mipi_dsi->mmio_base + MIPI_DSI_CONFIG);
+	}
+	else {
+		reg |= MIPI_DSI_LANE_ESC_CLK_EN(0x7);
+		reg |= MIPI_DSI_ESC_CLK_EN(1);
+		writel(reg, mipi_dsi->mmio_base + MIPI_DSI_CLKCTRL);
+
+		/* set main display resolution */
+		writel(MIPI_DSI_MAIN_HRESOL(mode->xres) |
+			MIPI_DSI_MAIN_VRESOL(mode->yres) |
+			MIPI_DSI_MAIN_STANDBY(0),
+			mipi_dsi->mmio_base + MIPI_DSI_MDRESOL);
+
+		/* set config register */
+		writel(MIPI_DSI_MFLUSH_VS(1) |
+			MIPI_DSI_SYNC_IN_FORM(0) |
+			MIPI_DSI_BURST_MODE(1) |
+			MIPI_DSI_VIDEO_MODE(1) |
+			MIPI_DSI_AUTO_MODE(0)  |
+			MIPI_DSI_HSE_DISABLE_MODE(0) |
+			MIPI_DSI_HFP_DISABLE_MODE(0) |
+			MIPI_DSI_HBP_DISABLE_MODE(0) |
+			MIPI_DSI_HSA_DISABLE_MODE(0) |
+			MIPI_DSI_MAIN_VC(0) |
+			MIPI_DSI_SUB_VC(1)  |
+			MIPI_DSI_MAIN_PIX_FORMAT(0x7) |
+			MIPI_DSI_SUB_PIX_FORMAT(0x7) |
+			MIPI_DSI_NUM_OF_DATALANE(0x1) |
+			MIPI_DSI_LANE_EN(0x7),
+			mipi_dsi->mmio_base + MIPI_DSI_CONFIG);
+	}
 
 	/* set main display vporch */
 	writel(MIPI_DSI_CMDALLOW(0xf) |
-	       MIPI_DSI_STABLE_VFP(mode->lower_margin) |
-	       MIPI_DSI_MAIN_VBP(mode->upper_margin),
-	       mipi_dsi->mmio_base + MIPI_DSI_MVPORCH);
+			MIPI_DSI_STABLE_VFP(mode->lower_margin) |
+			MIPI_DSI_MAIN_VBP(mode->upper_margin),
+			mipi_dsi->mmio_base + MIPI_DSI_MVPORCH);
 	/* set main display hporch */
 	writel(MIPI_DSI_MAIN_HFP(mode->right_margin) |
-	       MIPI_DSI_MAIN_HBP(mode->left_margin),
-	       mipi_dsi->mmio_base + MIPI_DSI_MHPORCH);
+			MIPI_DSI_MAIN_HBP(mode->left_margin),
+			mipi_dsi->mmio_base + MIPI_DSI_MHPORCH);
 	/* set main display sync */
 	writel(MIPI_DSI_MAIN_VSA(mode->vsync_len) |
-	       MIPI_DSI_MAIN_HSA(mode->hsync_len),
-	       mipi_dsi->mmio_base + MIPI_DSI_MSYNC);
+			MIPI_DSI_MAIN_HSA(mode->hsync_len),
+			mipi_dsi->mmio_base + MIPI_DSI_MSYNC);
 
 	/* configure d-phy timings */
 	if (!strcmp(mipi_dsi->lcd_panel, "TRULY-WVGA-TFT3P5581E")) {
@@ -535,10 +580,12 @@ static void mipi_dsi_disp_deinit(struct mxc_dispdrv_handle *disp)
 }
 
 static void mipi_dsi_set_mode(struct mipi_dsi_info *mipi_dsi,
-			      enum mipi_dsi_trans_mode mode)
+				enum mipi_dsi_trans_mode mode)
 {
-	unsigned int dsi_clkctrl;
+	unsigned int dsi_config, escape_mode, dsi_clkctrl;
 
+	dsi_config  = readl(mipi_dsi->mmio_base + MIPI_DSI_CONFIG);
+	escape_mode = readl(mipi_dsi->mmio_base + MIPI_DSI_ESCMODE);
 	dsi_clkctrl = readl(mipi_dsi->mmio_base + MIPI_DSI_CLKCTRL);
 
 	switch (mode) {
@@ -548,12 +595,24 @@ static void mipi_dsi_set_mode(struct mipi_dsi_info *mipi_dsi,
 	case DSI_HS_MODE:
 		dsi_clkctrl |= MIPI_DSI_TX_REQUEST_HSCLK(1);
 		break;
+	case DSI_CMD_MODE:
+		dsi_config  &= ~MIPI_DSI_VIDEO_MODE(1);
+		escape_mode |= (MIPI_DSI_CMD_LPDT | MIPI_DSI_TX_LPDT);
+		dsi_clkctrl &= ~MIPI_DSI_TX_REQUEST_HSCLK(1);
+		break;
+	case DSI_VD_MODE:
+		dsi_config  |= (MIPI_DSI_VIDEO_MODE(1) | MIPI_DSI_BURST_MODE(1));
+		escape_mode &= ~(MIPI_DSI_CMD_LPDT | MIPI_DSI_TX_LPDT);
+		dsi_clkctrl |= MIPI_DSI_TX_REQUEST_HSCLK(1);
+		break;
 	default:
 		dev_err(&mipi_dsi->pdev->dev,
 			"invalid dsi mode\n");
 		return;
 	}
 
+	writel(escape_mode, mipi_dsi->mmio_base + MIPI_DSI_ESCMODE);
+	writel(dsi_config, mipi_dsi->mmio_base + MIPI_DSI_CONFIG);
 	writel(dsi_clkctrl, mipi_dsi->mmio_base + MIPI_DSI_CLKCTRL);
 	mdelay(1);
 }
@@ -591,26 +650,49 @@ static int mipi_dsi_enable(struct mxc_dispdrv_handle *disp,
 		if (ret)
 			return -EINVAL;
 
-		msleep(20);
-		ret = device_reset(&mipi_dsi->pdev->dev);
-		if (ret) {
-			dev_err(&mipi_dsi->pdev->dev, "failed to reset device: %d\n", ret);
-			return -EINVAL;
-		}
-		msleep(120);
+		if (!strcmp(mipi_dsi->lcd_panel, "TRULY-TDO-QVGA0150A90049")) {
+			msleep(20);
+			ret = device_reset(&mipi_dsi->pdev->dev);
 
-		/* the panel should be config under LP mode */
-		ret = mipi_dsi->lcd_callback->mipi_lcd_setup(mipi_dsi);
-		if (ret < 0) {
-			dev_err(&mipi_dsi->pdev->dev,
-					"failed to init mipi lcd.\n");
-			return ret ;
-		}
-		mipi_dsi->lcd_inited = 1;
+			/* the mipi lcd panel should be config
+			* in the dsi command mode.
+			*/
+			mipi_dsi_set_mode(mipi_dsi, DSI_CMD_MODE);
+			ret = mipi_dsi->lcd_callback->mipi_lcd_setup(mipi_dsi);
+			if (ret < 0) {
+				dev_err(&mipi_dsi->pdev->dev,
+						"failed to init mipi lcd.\n");
+				return ret ;
+			}
+			mipi_dsi->lcd_inited = 1;
 
-		/* change to HS mode for panel display */
-		mipi_dsi_set_mode(mipi_dsi, DSI_HS_MODE);
-	} else {
+
+			/* change to video mode for panel display */
+			mipi_dsi_set_mode(mipi_dsi, DSI_VD_MODE);
+		}
+		else{
+			msleep(20);
+			ret = device_reset(&mipi_dsi->pdev->dev);
+			if (ret) {
+				dev_err(&mipi_dsi->pdev->dev, "failed to reset device: %d\n", ret);
+				return -EINVAL;
+			}
+			msleep(120);
+
+			/* the panel should be config under LP mode */
+			ret = mipi_dsi->lcd_callback->mipi_lcd_setup(mipi_dsi);
+			if (ret < 0) {
+				dev_err(&mipi_dsi->pdev->dev,
+						"failed to init mipi lcd.\n");
+				return ret ;
+			}
+			mipi_dsi->lcd_inited = 1;
+
+			/* change to HS mode for panel display */
+			mipi_dsi_set_mode(mipi_dsi, DSI_HS_MODE);
+		}
+	}
+	else {
 		ret = mipi_dsi_dcs_cmd(mipi_dsi, MIPI_DCS_EXIT_SLEEP_MODE,
 			NULL, 0);
 		if (ret) {
@@ -737,6 +819,18 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	mipi_dsi = devm_kzalloc(&pdev->dev, sizeof(*mipi_dsi), GFP_KERNEL);
 	if (!mipi_dsi)
 		return -ENOMEM;
+
+    /* request lcd-back-light pin */
+    back_light_gpio = of_get_named_gpio(np, "back-light-gpios", 0);
+    if (!gpio_is_valid(back_light_gpio)) {
+        dev_warn(&pdev->dev, "no lcd-back-light gpio pin available");
+        return -EINVAL;
+    }
+
+    ret = devm_gpio_request_one(&pdev->dev, back_light_gpio, GPIOF_OUT_INIT_HIGH,
+                               "lcd_mipi_back-light");
+    if (ret < 0)
+        return ret;
 	mipi_dsi->pdev = pdev;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);

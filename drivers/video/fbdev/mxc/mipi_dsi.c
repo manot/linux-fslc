@@ -1,3 +1,4 @@
+
 /*
  * Copyright (C) 2011-2015 Freescale Semiconductor, Inc. All Rights Reserved.
  */
@@ -56,6 +57,12 @@ static struct mipi_dsi_match_lcd mipi_dsi_lcd_db[] = {
 	 "TRULY-WVGA",
 	 {mipid_hx8369_get_lcd_videomode, mipid_hx8369_lcd_setup}
 	},
+#endif
+#ifdef CONFIG_FB_MXC_TRULY_PANEL_TDO_QVGA0150A90049
+        {
+         "TRULY-TDO-QVGA0150A90049",
+         {mipid_otm3201a_get_lcd_videomode, mipid_otm3201a_lcd_setup}
+        },
 #endif
 	{
 	"", {NULL, NULL}
