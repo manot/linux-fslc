@@ -43,6 +43,16 @@ config FB_MXC_TRULY_PANEL_TFT3P5581E
 	depends on FB_MXC_SYNC_PANEL
 	depends on FB_MXC_MIPI_DSI_SAMSUNG
 
+config FB_MXC_TRULY_PANEL_TDO_QVGA0150A90049
+	tristate "TRULY Panel OTM3201A"
+	depends on FB_MXC_SYNC_PANEL
+	depends on FB_MXC_MIPI_DSI_SAMSUNG
+
+config FB_MXC_TRULY_PANEL_TFT320RND
+	tristate "TRULY Panel TFT320RND"
+	depends on FB_MXC_SYNC_PANEL
+	depends on FB_MXC_MIPI_DSI_SAMSUNG
+
 config FB_MXC_LDB
 	tristate "MXC LDB"
 	depends on FB_MXC_SYNC_PANEL
