@@ -503,6 +503,12 @@ sound {
 	pinctrl-names = "default";
 
 	imx7d-sdb {
+		pinctrl_hog_1: hoggrp-1 {
+			fsl,pins = <
+				MX7D_PAD_SD2_DATA3__GPIO5_IO17	0x80000000  /* pass thru the bt reg on */
+			>;
+		};
+
 		pinctrl_gpio: gpiogrp {
 			fsl,pins = <
 				MX7D_PAD_ENET1_RGMII_RD1__GPIO7_IO1	0x14
