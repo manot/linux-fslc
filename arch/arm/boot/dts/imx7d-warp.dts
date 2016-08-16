@@ -66,7 +66,30 @@
 		reg = <0x80000000 0x40000000>;
 	};
 
-	sound {
+	+       bcmdhd_wlan_0: bcmdhd_wlan@0 {
+               compatible = "android,bcmdhd_wlan";
+               /* WL_HOST_WAKE=GPIO<5,11>, WL_REG_ON=GPIO<5,10>  */
+               gpios = <&gpio5 11 0>, <&gpio5 10 0>;
+               wlreg_on-supply = <&wlreg_on>;
+       };
+
+       regulators {
+               compatible = "simple-bus";
+               #address-cells = <1>;
+               #size-cells = <0>;
+
+               wlreg_on: fixedregulator@100 {
+                       compatible = "regulator-fixed";
+                       regulator-min-microvolt = <5000000>;
+                       regulator-max-microvolt = <5000000>;
+                       regulator-name = "wlreg_on";
+                       gpio = <&gpio5 10 0>; /* GPIO drives WL_REG_ON signal */
+                       startup-delay-us = <100>;
+                       enable-active-high;
+               };
+       };
+
+sound {
 		compatible = "simple-audio-card";
 		simple-audio-card,name = "imx7s-sgtl5000";
 		simple-audio-card,format = "i2s";
@@ -451,6 +474,18 @@
 	status = "okay";
 };
 
+&usdhc1 {
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc1>; /* "default entry selected as Murata 1DX
+	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
+	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
+	keep-power-in-suspend;
+	enable-sdio-wakeup;
+	tuning-step = <2>;
+	wifi-host; /* Murata -- add hook for SD card detect mechanism */
+	status = "okay";
+};
+
 &usdhc3 {
 	pinctrl-names = "default", "state_100mhz", "state_200mhz";
 	pinctrl-0 = <&pinctrl_usdhc3>;
@@ -538,6 +573,42 @@
 				MX7D_PAD_UART3_CTS_B__UART3_DCE_CTS 0x79
 				MX7D_PAD_UART3_RTS_B__UART3_DCE_RTS 0x79
 				MX7D_PAD_SD2_DATA3__GPIO5_IO17 0x14/*BT_REG_ON*/
+			>;
+		};
+
+		pinctrl_usdhc1: usdhc1grp {
+			fsl,pins = <
+				MX7D_PAD_SD1_CMD__SD1_CMD               0x59
+				MX7D_PAD_SD1_CLK__SD1_CLK               0x19
+				MX7D_PAD_SD1_DATA0__SD1_DATA0           0x59
+				MX7D_PAD_SD1_DATA1__SD1_DATA1           0x59
+				MX7D_PAD_SD1_DATA2__SD1_DATA2           0x59
+				MX7D_PAD_SD1_DATA3__SD1_DATA3           0x59
+				MX7D_PAD_SD2_WP__GPIO5_IO10             0x59
+			>;
+		};
+
+		pinctrl_usdhc1_100mhz: usdhc1grp_100mhz {
+			fsl,pins = <
+				MX7D_PAD_SD1_CMD__SD1_CMD               0x5a
+				MX7D_PAD_SD1_CLK__SD1_CLK               0x1a
+				MX7D_PAD_SD1_DATA0__SD1_DATA0           0x5a
+				MX7D_PAD_SD1_DATA1__SD1_DATA1           0x5a
+				MX7D_PAD_SD1_DATA2__SD1_DATA2           0x5a
+				MX7D_PAD_SD1_DATA3__SD1_DATA3           0x5a
+				MX7D_PAD_SD2_WP__GPIO5_IO10             0x59 
+			>;
+		};
+
+		pinctrl_usdhc1_200mhz: usdhc1grp_200mhz {
+			fsl,pins = <
+				MX7D_PAD_SD1_CMD__SD1_CMD               0x5b
+				MX7D_PAD_SD1_CLK__SD1_CLK               0x1b
+				MX7D_PAD_SD1_DATA0__SD1_DATA0           0x5b
+				MX7D_PAD_SD1_DATA1__SD1_DATA1           0x5b
+				MX7D_PAD_SD1_DATA2__SD1_DATA2           0x5b
+				MX7D_PAD_SD1_DATA3__SD1_DATA3           0x5b
+				MX7D_PAD_SD2_WP__GPIO5_IO10             0x59 
 			>;
 		};
 
